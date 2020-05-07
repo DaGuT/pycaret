@@ -2,12 +2,10 @@
 # Author: Moez Ali <moez.ali@queensu.ca>
 # License: MIT
 
-
-
 def setup(data, 
           target, 
-          train_size=0.7,
-          sampling=True,
+          train_size = 0.7,
+          sampling = True,
           sample_estimator = None,
           categorical_features = None,
           categorical_imputation = 'constant',
@@ -52,6 +50,8 @@ def setup(data,
           transform_target_method = 'box-cox', #new
           session_id = None,
           silent = False,
+          data_split_shuffle = True, #new
+          folds_shuffle = False, #new
           profile = False):
     
     """
@@ -363,7 +363,13 @@ def setup(data,
     When set to True, confirmation of data types is not required. All preprocessing will 
     be performed assuming automatically inferred data types. Not recommended for direct use 
     except for established pipelines.
-    
+
+    data_split_shuffle: bool, default = True
+    If set to False, prevents shuffling of rows when splitting data
+
+    folds_shuffle: bool, default = True
+    If set to False, prevents shuffling of rows when using cross validation
+
     profile: bool, default = False
     If set to true, a data profile for Exploratory Data Analysis will be displayed 
     in an interactive HTML report. 
@@ -1114,7 +1120,7 @@ def setup(data,
     
     #sample estimator
     if sample_estimator is None:
-        model = LinearRegression()
+        model = LinearRegression(n_jobs=-1)
     else:
         model = sample_estimator
         
@@ -1160,8 +1166,8 @@ def setup(data,
             MONITOR UPDATE ENDS
             '''
     
-            X_, X__, y_, y__ = train_test_split(X, y, test_size=1-i, random_state=seed)
-            X_train, X_test, y_train, y_test = train_test_split(X_, y_, test_size=0.3, random_state=seed)
+            X_, X__, y_, y__ = train_test_split(X, y, test_size=1-i, random_state=seed, shuffle=data_split_shuffle)
+            X_train, X_test, y_train, y_test = train_test_split(X_, y_, test_size=0.3, random_state=seed, shuffle=data_split_shuffle)
             model.fit(X_train,y_train)
             pred_ = model.predict(X_test)
             
@@ -1228,7 +1234,7 @@ def setup(data,
         
         if sample_size == '' or sample_size == '1':
             
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=1-train_size, random_state=seed)
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=1-train_size, random_state=seed, shuffle=data_split_shuffle)
             
             '''
             Final display Starts
@@ -1320,10 +1326,10 @@ def setup(data,
             
             sample_n = float(sample_size)
             X_selected, X_discard, y_selected, y_discard = train_test_split(X, y, test_size=1-sample_n,  
-                                                                random_state=seed)
+                                                                random_state=seed, shuffle=data_split_shuffle)
             
             X_train, X_test, y_train, y_test = train_test_split(X_selected, y_selected, test_size=1-train_size, 
-                                                                random_state=seed)
+                                                                random_state=seed, shuffle=data_split_shuffle)
             clear_output()
             
             
@@ -1418,7 +1424,7 @@ def setup(data,
         
         monitor.iloc[1,1:] = 'Splitting Data'
         update_display(monitor, display_id = 'monitor')
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=1-train_size, random_state=seed)
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=1-train_size, random_state=seed, shuffle=data_split_shuffle)
         progress.value += 1
         
         clear_output()
@@ -1507,15 +1513,13 @@ def setup(data,
         
         return X, y, X_train, X_test, y_train, y_test, seed, prep_pipe, target_inverse_transformer, experiment__
 
-
-
-
 def create_model(estimator = None, 
                  ensemble = False, 
                  method = None, 
                  fold = 10, 
                  round = 4,  
-                 verbose = True):
+                 verbose = True,
+                 **kwargs):
     
      
     """  
@@ -1588,6 +1592,9 @@ def create_model(estimator = None,
 
     verbose: Boolean, default = True
     Score grid is not printed when verbose is set to False.
+
+    **kwargs: 
+    Additional keyword arguments to pass to the estimator
 
     Returns:
     --------
@@ -1674,7 +1681,7 @@ def create_model(estimator = None,
     
     #progress bar
     progress = ipw.IntProgress(value=0, min=0, max=fold+4, step=1 , description='Processing: ')
-    master_display = pd.DataFrame(columns=['MAE','MSE','RMSE', 'R2', 'RMSLE', 'MAPE'])
+    master_display = pd.DataFrame(columns=['MAE','MSE','RMSE', 'R2', 'RMSLE', 'MAPE', 'Training time'])
     display(progress)
     
     #display monitor
@@ -1710,7 +1717,7 @@ def create_model(estimator = None,
     progress.value += 1
     
     #cross validation setup starts here
-    kf = KFold(fold, random_state=seed)
+    kf = KFold(fold, random_state=seed, shuffle=folds_shuffle)
     
     score_mae =np.empty((0,0))
     score_mse =np.empty((0,0))
@@ -1718,12 +1725,14 @@ def create_model(estimator = None,
     score_rmsle =np.empty((0,0))
     score_r2 =np.empty((0,0))
     score_mape =np.empty((0,0))
+    score_training_time=np.empty((0,0))
     avgs_mae =np.empty((0,0))
     avgs_mse =np.empty((0,0))
     avgs_rmse =np.empty((0,0))
     avgs_r2 =np.empty((0,0))
     avgs_mape =np.empty((0,0)) 
     avgs_rmsle =np.empty((0,0))
+    avgs_training_time=np.empty((0,0))
     
     def calculate_mape(actual, prediction):
         mask = actual != 0
@@ -1743,149 +1752,149 @@ def create_model(estimator = None,
     if estimator == 'lr':
         
         from sklearn.linear_model import LinearRegression
-        model = LinearRegression()
+        model = LinearRegression(n_jobs=-1, **kwargs)
         full_name = 'Linear Regression'
         
     elif estimator == 'lasso':
         
         from sklearn.linear_model import Lasso
-        model = Lasso(random_state=seed)
+        model = Lasso(random_state=seed, **kwargs)
         full_name = 'Lasso Regression'
         
     elif estimator == 'ridge':
         
         from sklearn.linear_model import Ridge
-        model = Ridge(random_state=seed)
+        model = Ridge(random_state=seed, **kwargs)
         full_name = 'Ridge Regression'
         
     elif estimator == 'en':
         
         from sklearn.linear_model import ElasticNet
-        model = ElasticNet(random_state=seed)
+        model = ElasticNet(random_state=seed, **kwargs)
         full_name = 'Elastic Net'
         
     elif estimator == 'lar':
         
         from sklearn.linear_model import Lars
-        model = Lars()
+        model = Lars(**kwargs)
         full_name = 'Least Angle Regression'
         
     elif estimator == 'llar':
         
         from sklearn.linear_model import LassoLars
-        model = LassoLars()
+        model = LassoLars(**kwargs)
         full_name = 'Lasso Least Angle Regression'
         
     elif estimator == 'omp':
         
         from sklearn.linear_model import OrthogonalMatchingPursuit
-        model = OrthogonalMatchingPursuit()
+        model = OrthogonalMatchingPursuit(**kwargs)
         full_name = 'Orthogonal Matching Pursuit'
         
     elif estimator == 'br':
         from sklearn.linear_model import BayesianRidge
-        model = BayesianRidge()
+        model = BayesianRidge(**kwargs)
         full_name = 'Bayesian Ridge Regression' 
         
     elif estimator == 'ard':
         
         from sklearn.linear_model import ARDRegression
-        model = ARDRegression()
+        model = ARDRegression(**kwargs)
         full_name = 'Automatic Relevance Determination'        
         
     elif estimator == 'par':
         
         from sklearn.linear_model import PassiveAggressiveRegressor
-        model = PassiveAggressiveRegressor(random_state=seed)
+        model = PassiveAggressiveRegressor(random_state=seed, **kwargs)
         full_name = 'Passive Aggressive Regressor'    
         
     elif estimator == 'ransac':
         
         from sklearn.linear_model import RANSACRegressor
-        model = RANSACRegressor(min_samples=0.5, random_state=seed)
+        model = RANSACRegressor(min_samples=0.5, random_state=seed, **kwargs)
         full_name = 'Random Sample Consensus'   
         
     elif estimator == 'tr':
         
         from sklearn.linear_model import TheilSenRegressor
-        model = TheilSenRegressor(random_state=seed)
+        model = TheilSenRegressor(random_state=seed, n_jobs=-1, **kwargs)
         full_name = 'TheilSen Regressor'     
         
     elif estimator == 'huber':
         
         from sklearn.linear_model import HuberRegressor
-        model = HuberRegressor()
+        model = HuberRegressor(**kwargs)
         full_name = 'Huber Regressor'   
         
     elif estimator == 'kr':
         
         from sklearn.kernel_ridge import KernelRidge
-        model = KernelRidge()
+        model = KernelRidge(**kwargs)
         full_name = 'Kernel Ridge'
         
     elif estimator == 'svm':
         
         from sklearn.svm import SVR
-        model = SVR()
+        model = SVR(**kwargs)
         full_name = 'Support Vector Regression'  
         
     elif estimator == 'knn':
         
         from sklearn.neighbors import KNeighborsRegressor
-        model = KNeighborsRegressor()
+        model = KNeighborsRegressor(n_jobs=-1, **kwargs)
         full_name = 'Nearest Neighbors Regression' 
         
     elif estimator == 'dt':
         
         from sklearn.tree import DecisionTreeRegressor
-        model = DecisionTreeRegressor(random_state=seed)
+        model = DecisionTreeRegressor(random_state=seed, **kwargs)
         full_name = 'Decision Tree Regressor'
         
     elif estimator == 'rf':
         
         from sklearn.ensemble import RandomForestRegressor
-        model = RandomForestRegressor(random_state=seed)
+        model = RandomForestRegressor(random_state=seed, n_jobs=-1, **kwargs)
         full_name = 'Random Forest Regressor'
         
     elif estimator == 'et':
         
         from sklearn.ensemble import ExtraTreesRegressor
-        model = ExtraTreesRegressor(random_state=seed)
+        model = ExtraTreesRegressor(random_state=seed, n_jobs=-1, **kwargs)
         full_name = 'Extra Trees Regressor'    
         
     elif estimator == 'ada':
         
         from sklearn.ensemble import AdaBoostRegressor
-        model = AdaBoostRegressor(random_state=seed)
+        model = AdaBoostRegressor(random_state=seed, **kwargs)
         full_name = 'AdaBoost Regressor'   
         
     elif estimator == 'gbr':
         
         from sklearn.ensemble import GradientBoostingRegressor
-        model = GradientBoostingRegressor(random_state=seed)
+        model = GradientBoostingRegressor(random_state=seed, **kwargs)
         full_name = 'Gradient Boosting Regressor'       
         
     elif estimator == 'mlp':
         
         from sklearn.neural_network import MLPRegressor
-        model = MLPRegressor(random_state=seed)
+        model = MLPRegressor(random_state=seed, **kwargs)
         full_name = 'MLP Regressor'
         
     elif estimator == 'xgboost':
         
         from xgboost import XGBRegressor
-        model = XGBRegressor(random_state=seed, n_jobs=-1, verbosity=0)
+        model = XGBRegressor(random_state=seed, n_jobs=-1, verbosity=0, **kwargs)
         full_name = 'Extreme Gradient Boosting Regressor'
         
     elif estimator == 'lightgbm':
         
         import lightgbm as lgb
-        model = lgb.LGBMRegressor(random_state=seed)
+        model = lgb.LGBMRegressor(random_state=seed, n_jobs=-1, **kwargs)
         full_name = 'Light Gradient Boosting Machine'
         
     elif estimator == 'catboost':
         from catboost import CatBoostRegressor
-        model = CatBoostRegressor(random_state=seed, silent = True)
+        model = CatBoostRegressor(random_state=seed, silent = True, thread_count=-1, **kwargs)
         full_name = 'CatBoost Regressor'
         
     else:
@@ -1938,6 +1947,7 @@ def create_model(estimator = None,
         
         Xtrain,Xtest = data_X.iloc[train_i], data_X.iloc[test_i]
         ytrain,ytest = data_y.iloc[train_i], data_y.iloc[test_i]  
+        time_start=time.time()
         model.fit(Xtrain,ytrain)
         pred_ = model.predict(Xtest)
         
@@ -1949,13 +1959,14 @@ def create_model(estimator = None,
             
         except:
             pass
-        
+        time_end=time.time()
         mae = metrics.mean_absolute_error(ytest,pred_)
         mse = metrics.mean_squared_error(ytest,pred_)
         rmse = np.sqrt(mse)
         rmsle = np.sqrt(np.mean(np.power(np.log(np.array(abs(pred_))+1) - np.log(np.array(abs(ytest))+1), 2)))
         r2 = metrics.r2_score(ytest,pred_)
         mape = calculate_mape(ytest,pred_)
+        training_time=time_end-time_start
         #max_error_ = metrics.max_error(ytest,pred_)
         score_mae = np.append(score_mae,mae)
         score_mse = np.append(score_mse,mse)
@@ -1963,7 +1974,7 @@ def create_model(estimator = None,
         score_rmsle = np.append(score_rmsle,rmsle)
         score_r2 =np.append(score_r2,r2)
         score_mape = np.append(score_mape,mape)
-       
+        score_training_time=np.append(score_training_time,training_time)
         progress.value += 1
         
         
@@ -1975,7 +1986,8 @@ def create_model(estimator = None,
         '''
         
         fold_results = pd.DataFrame({'MAE':[mae], 'MSE': [mse], 'RMSE': [rmse], 'R2': [r2],
-                                     'RMSLE' : [rmsle], 'MAPE': [mape] }).round(round)
+                                     'RMSLE' : [rmsle], 'MAPE': [mape], 'Training time':[training_time] }).round(round)
+        fold_results.loc[:,'Training time'] = fold_results.loc[:,'Training time'].round(2)
         master_display = pd.concat([master_display, fold_results],ignore_index=True)
         fold_results = []
         
@@ -2028,13 +2040,15 @@ def create_model(estimator = None,
     mean_rmsle=np.mean(score_rmsle)
     mean_r2=np.mean(score_r2)
     mean_mape=np.mean(score_mape)
+    mean_training_time=np.mean(score_training_time)
     std_mae=np.std(score_mae)
     std_mse=np.std(score_mse)
     std_rmse=np.std(score_rmse)
     std_rmsle=np.std(score_rmsle)
     std_r2=np.std(score_r2)
     std_mape=np.std(score_mape)
-
+    std_training_time=np.std(score_training_time)
+    
     avgs_mae = np.append(avgs_mae, mean_mae)
     avgs_mae = np.append(avgs_mae, std_mae) 
     avgs_mse = np.append(avgs_mse, mean_mse)
@@ -2047,23 +2061,27 @@ def create_model(estimator = None,
     avgs_r2 = np.append(avgs_r2, std_r2)
     avgs_mape = np.append(avgs_mape, mean_mape)
     avgs_mape = np.append(avgs_mape, std_mape)
+    avgs_training_time=np.append(avgs_training_time, mean_training_time)
+    avgs_training_time=np.append(avgs_training_time, std_training_time)
     
     progress.value += 1
     
     model_results = pd.DataFrame({'MAE': score_mae, 'MSE': score_mse, 'RMSE' : score_rmse, 'R2' : score_r2,
-                                  'RMSLE' : score_rmsle, 'MAPE' : score_mape})
+                                  'RMSLE' : score_rmsle, 'MAPE' : score_mape,'Training time':score_training_time})
     model_avgs = pd.DataFrame({'MAE': avgs_mae, 'MSE': avgs_mse, 'RMSE' : avgs_rmse, 'R2' : avgs_r2,
-                                'RMSLE' : avgs_rmsle, 'MAPE' : avgs_mape},index=['Mean', 'SD'])
+                                'RMSLE' : avgs_rmsle, 'MAPE' : avgs_mape, 'Training time':avgs_training_time},index=['Mean', 'SD'])
 
     model_results = model_results.append(model_avgs)
     model_results = model_results.round(round)
+    model_results.loc[:,'Training time'] = model_results.loc[:,'Training time'].round(2)
     
     #refitting the model on complete X_train, y_train
     monitor.iloc[1,1:] = 'Compiling Final Model'
     update_display(monitor, display_id = 'monitor')
     
     model.fit(data_X, data_y)
-    
+    # Green the mean
+    model_results=model_results.style.apply(lambda x: ['background: lightgreen' if (x.name == 'Mean') else '' for i in x], axis=1)
     progress.value += 1
     
     #storing into experiment
@@ -2080,7 +2098,6 @@ def create_model(estimator = None,
     else:
         clear_output()
         return model
-
 
 def ensemble_model(estimator,
                    method = 'Bagging', 
@@ -2202,7 +2219,7 @@ def ensemble_model(estimator,
     
     #progress bar
     progress = ipw.IntProgress(value=0, min=0, max=fold+4, step=1 , description='Processing: ')
-    master_display = pd.DataFrame(columns=['MAE','MSE','RMSE', 'R2', 'RMSLE', 'MAPE'])
+    master_display = pd.DataFrame(columns=['MAE','MSE','RMSE', 'R2', 'RMSLE', 'MAPE', 'Training time'])
     display(progress)
     
     #display monitor
@@ -2274,7 +2291,7 @@ def ensemble_model(estimator,
     MONITOR UPDATE ENDS
     '''
     
-    kf = KFold(fold, random_state=seed)
+    kf = KFold(fold, random_state=seed, shuffle=folds_shuffle)
     
     score_mae =np.empty((0,0))
     score_mse =np.empty((0,0))
@@ -2282,12 +2299,14 @@ def ensemble_model(estimator,
     score_rmsle =np.empty((0,0))
     score_r2 =np.empty((0,0))
     score_mape =np.empty((0,0))
+    score_training_time=np.empty((0,0))
     avgs_mae =np.empty((0,0))
     avgs_mse =np.empty((0,0))
     avgs_rmse =np.empty((0,0))
     avgs_rmsle =np.empty((0,0))
     avgs_r2 =np.empty((0,0))
     avgs_mape =np.empty((0,0))
+    avgs_training_time=np.empty((0,0))
     
     def calculate_mape(actual, prediction):
         mask = actual != 0
@@ -2312,6 +2331,7 @@ def ensemble_model(estimator,
         
         Xtrain,Xtest = data_X.iloc[train_i], data_X.iloc[test_i]
         ytrain,ytest = data_y.iloc[train_i], data_y.iloc[test_i]
+        time_start=time.time()
         model.fit(Xtrain,ytrain)
         pred_ = model.predict(Xtest)
         
@@ -2323,19 +2343,21 @@ def ensemble_model(estimator,
             
         except:
             pass
-        
+        time_end=time.time()
         mae = metrics.mean_absolute_error(ytest,pred_)
         mse = metrics.mean_squared_error(ytest,pred_)
         rmse = np.sqrt(mse)
         rmsle = np.sqrt(np.mean(np.power(np.log(np.array(abs(pred_))+1) - np.log(np.array(abs(ytest))+1), 2)))
         r2 = metrics.r2_score(ytest,pred_)
         mape = calculate_mape(ytest,pred_)
+        training_time=time_end-time_start
         score_mae = np.append(score_mae,mae)
         score_mse = np.append(score_mse,mse)
         score_rmse = np.append(score_rmse,rmse)
         score_rmsle = np.append(score_rmsle,rmsle)
         score_r2 =np.append(score_r2,r2)
         score_mape = np.append(score_mape,mape)
+        score_training_time=np.append(score_training_time,training_time)
         
         progress.value += 1
         
@@ -2347,7 +2369,8 @@ def ensemble_model(estimator,
         '''
         
         fold_results = pd.DataFrame({'MAE':[mae], 'MSE': [mse], 'RMSE': [rmse], 
-                                     'R2': [r2], 'RMSLE': [rmsle], 'MAPE': [mape]}).round(round)
+                                     'R2': [r2], 'RMSLE': [rmsle], 'MAPE': [mape], 'Training time':[training_time]}).round(round)
+        fold_results.loc[:,'Training time'] = fold_results.loc[:,'Training time'].round(2)
         master_display = pd.concat([master_display, fold_results],ignore_index=True)
         fold_results = []
         
@@ -2406,13 +2429,15 @@ def ensemble_model(estimator,
     mean_rmsle=np.mean(score_rmsle)
     mean_r2=np.mean(score_r2)
     mean_mape=np.mean(score_mape)
+    mean_training_time=np.mean(score_training_time)
     std_mae=np.std(score_mae)
     std_mse=np.std(score_mse)
     std_rmse=np.std(score_rmse)
     std_rmsle=np.std(score_rmsle)
     std_r2=np.std(score_r2)
     std_mape=np.std(score_mape)
-
+    std_training_time=np.std(score_training_time)
+    
     avgs_mae = np.append(avgs_mae, mean_mae)
     avgs_mae = np.append(avgs_mae, std_mae) 
     avgs_mse = np.append(avgs_mse, mean_mse)
@@ -2425,15 +2450,19 @@ def ensemble_model(estimator,
     avgs_r2 = np.append(avgs_r2, std_r2)
     avgs_mape = np.append(avgs_mape, mean_mape)
     avgs_mape = np.append(avgs_mape, std_mape)
+    avgs_training_time=np.append(avgs_training_time, mean_training_time)
+    avgs_training_time=np.append(avgs_training_time, std_training_time)
 
-    model_results = pd.DataFrame({'MAE': score_mae, 'MSE': score_mse, 'RMSE' : score_rmse, 'R2' : score_r2 , 
-                                 'RMSLE' : score_rmsle, 'MAPE' : score_mape})
-    model_avgs = pd.DataFrame({'MAE': avgs_mae, 'MSE': avgs_mse, 'RMSE' : avgs_rmse, 'R2' : avgs_r2 , 
-                               'RMSLE' : avgs_rmsle, 'MAPE' : avgs_mape},index=['Mean', 'SD'])
+    model_results = pd.DataFrame({'MAE': score_mae, 'MSE': score_mse, 'RMSE' : score_rmse, 'R2' : score_r2,
+                                  'RMSLE' : score_rmsle, 'MAPE' : score_mape,'Training time':score_training_time})
+    model_avgs = pd.DataFrame({'MAE': avgs_mae, 'MSE': avgs_mse, 'RMSE' : avgs_rmse, 'R2' : avgs_r2,
+                                'RMSLE' : avgs_rmsle, 'MAPE' : avgs_mape, 'Training time':avgs_training_time},index=['Mean', 'SD'])
 
     model_results = model_results.append(model_avgs)
     model_results = model_results.round(round)  
-    
+    model_results.loc[:,'Training time'] = model_results.loc[:,'Training time'].round(2)
+    # Green the mean
+    model_results=model_results.style.apply(lambda x: ['background: lightgreen' if (x.name == 'Mean') else '' for i in x], axis=1)
     progress.value += 1
     
     #refitting the model on complete X_train, y_train
@@ -2460,8 +2489,6 @@ def ensemble_model(estimator,
     else:
         clear_output()
         return model
-
-
 
 def compare_models(blacklist = None,
                    fold = 10, 
@@ -2635,7 +2662,7 @@ def compare_models(blacklist = None,
         len_mod = 25 - len_of_blacklist
         
     progress = ipw.IntProgress(value=0, min=0, max=(fold*len_mod)+25, step=1 , description='Processing: ')
-    master_display = pd.DataFrame(columns=['Model', 'MAE','MSE','RMSE', 'R2', 'RMSLE', 'MAPE'])
+    master_display = pd.DataFrame(columns=['Model', 'MAE','MSE','RMSE', 'R2', 'RMSLE', 'MAPE', 'Training time'])
     display(progress)
     
     #display monitor
@@ -2718,7 +2745,7 @@ def compare_models(blacklist = None,
     '''
     
     #creating model object
-    lr = LinearRegression()
+    lr = LinearRegression(n_jobs=-1)
     lasso = Lasso(random_state=seed)
     ridge = Ridge(random_state=seed)
     en = ElasticNet(random_state=seed)
@@ -2729,20 +2756,20 @@ def compare_models(blacklist = None,
     ard = ARDRegression()
     par = PassiveAggressiveRegressor(random_state=seed)
     ransac = RANSACRegressor(min_samples=0.5, random_state=seed)
-    tr = TheilSenRegressor(random_state=seed)
+    tr = TheilSenRegressor(random_state=seed, n_jobs=-1)
     huber = HuberRegressor()
     kr = KernelRidge()
     svm = SVR()
-    knn = KNeighborsRegressor()
+    knn = KNeighborsRegressor(n_jobs=-1)
     dt = DecisionTreeRegressor(random_state=seed)
-    rf = RandomForestRegressor(random_state=seed)
-    et = ExtraTreesRegressor(random_state=seed)
+    rf = RandomForestRegressor(random_state=seed, n_jobs=-1)
+    et = ExtraTreesRegressor(random_state=seed, n_jobs=-1)
     ada = AdaBoostRegressor(random_state=seed)
     gbr = GradientBoostingRegressor(random_state=seed)
     mlp = MLPRegressor(random_state=seed)
     xgboost = XGBRegressor(random_state=seed, n_jobs=-1, verbosity=0)
-    lightgbm = lgb.LGBMRegressor(random_state=seed)
-    catboost = CatBoostRegressor(random_state=seed, silent = True)
+    lightgbm = lgb.LGBMRegressor(random_state=seed, n_jobs=-1)
+    catboost = CatBoostRegressor(random_state=seed, silent = True, thread_count=-1)
     
     progress.value += 1
     
@@ -2860,7 +2887,7 @@ def compare_models(blacklist = None,
     '''
     
     #cross validation setup starts here
-    kf = KFold(fold, random_state=seed)
+    kf = KFold(fold, random_state=seed, shuffle=folds_shuffle)
 
     score_mae =np.empty((0,0))
     score_mse =np.empty((0,0))
@@ -2868,12 +2895,14 @@ def compare_models(blacklist = None,
     score_rmsle =np.empty((0,0))
     score_r2 =np.empty((0,0))
     score_mape =np.empty((0,0))
+    score_training_time=np.empty((0,0))
     avgs_mae =np.empty((0,0))
     avgs_mse =np.empty((0,0))
     avgs_rmse =np.empty((0,0))
     avgs_rmsle =np.empty((0,0))
     avgs_r2 =np.empty((0,0))
     avgs_mape =np.empty((0,0))  
+    avgs_training_time=np.empty((0,0))
     
     def calculate_mape(actual, prediction):
         mask = actual != 0
@@ -2917,6 +2946,7 @@ def compare_models(blacklist = None,
      
             Xtrain,Xtest = data_X.iloc[train_i], data_X.iloc[test_i]
             ytrain,ytest = data_y.iloc[train_i], data_y.iloc[test_i]
+            time_start=time.time()
             model.fit(Xtrain,ytrain)
             pred_ = model.predict(Xtest)
             
@@ -2928,13 +2958,14 @@ def compare_models(blacklist = None,
 
             except:
                 pass
-        
+            time_end=time.time()
             mae = metrics.mean_absolute_error(ytest,pred_)
             mse = metrics.mean_squared_error(ytest,pred_)
             rmse = np.sqrt(mse)
             r2 = metrics.r2_score(ytest,pred_)
             rmsle = np.sqrt(np.mean(np.power(np.log(np.array(abs(pred_))+1) - np.log(np.array(abs(ytest))+1), 2)))
             mape = calculate_mape(ytest,pred_)
+            training_time=time_end-time_start
             #max_error_ = metrics.max_error(ytest,pred_)
             score_mae = np.append(score_mae,mae)
             score_mse = np.append(score_mse,mse)
@@ -2942,6 +2973,7 @@ def compare_models(blacklist = None,
             score_rmsle = np.append(score_rmsle,rmsle)
             score_r2 =np.append(score_r2,r2)
             score_mape = np.append(score_mape,mape)            
+            score_training_time=np.append(score_training_time,training_time)
                 
                 
             '''
@@ -2979,11 +3011,13 @@ def compare_models(blacklist = None,
         avgs_rmsle = np.append(avgs_rmsle,np.mean(score_rmsle))
         avgs_r2 = np.append(avgs_r2,np.mean(score_r2))
         avgs_mape = np.append(avgs_mape,np.mean(score_mape))
+        avgs_training_time = np.append(avgs_training_time,np.mean(score_training_time))
         
         compare_models_ = pd.DataFrame({'Model':model_names[name_counter], 'MAE':avgs_mae, 'MSE':avgs_mse, 
-                           'RMSE':avgs_rmse, 'R2':avgs_r2, 'RMSLE':avgs_rmsle, 'MAPE':avgs_mape})
+                           'RMSE':avgs_rmse, 'R2':avgs_r2, 'RMSLE':avgs_rmsle, 'MAPE':avgs_mape, 'Training time':avgs_training_time})
         master_display = pd.concat([master_display, compare_models_],ignore_index=True)
         master_display = master_display.round(round)
+        master_display.loc[:,'Training time'] = master_display.loc[:,'Training time'].round(2)
         
         if sort == 'R2':
             master_display = master_display.sort_values(by=sort,ascending=False)
@@ -3000,14 +3034,14 @@ def compare_models(blacklist = None,
         score_rmsle =np.empty((0,0))
         score_r2 =np.empty((0,0))
         score_mape =np.empty((0,0))
-        
+        score_training_time=np.empty((0,0))
         avgs_mae = np.empty((0,0))
         avgs_mse = np.empty((0,0))
         avgs_rmse = np.empty((0,0))
         avgs_rmsle = np.empty((0,0))
         avgs_r2 = np.empty((0,0))
         avgs_mape = np.empty((0,0))
-        
+        avgs_training_time=np.empty((0,0))
         name_counter += 1
   
     progress.value += 1
@@ -3018,10 +3052,14 @@ def compare_models(blacklist = None,
     experiment__.append(tup)
     
     def highlight_min(s):
-        is_min = s == s.min()
-        return ['background-color: yellow' if v else '' for v in is_min]
+        if s.name=='R2':# min
+            to_highlight = s == s.max()
+        else:
+            to_highlight = s == s.min()
 
-    compare_models_ = master_display.style.apply(highlight_min,subset=['MAE','MSE','RMSE','RMSLE','MAPE' ])
+        return ['background-color: yellow' if v else '' for v in to_highlight]
+
+    compare_models_ = master_display.style.apply(highlight_min,subset=['MAE','MSE','RMSE','R2','RMSLE','MAPE', 'Training time' ])
     compare_models_ = compare_models_.set_properties(**{'text-align': 'left'})
     compare_models_ = compare_models_.set_table_styles([dict(selector='th', props=[('text-align', 'left')])])
     
@@ -3030,8 +3068,6 @@ def compare_models(blacklist = None,
     clear_output()
 
     return compare_models_
-
-
 
 def blend_models(estimator_list = 'All', 
                  fold = 10, 
@@ -3158,7 +3194,7 @@ def blend_models(estimator_list = 'All',
     
     #progress bar
     progress = ipw.IntProgress(value=0, min=0, max=fold+4, step=1 , description='Processing: ')
-    master_display = pd.DataFrame(columns=['MAE','MSE','RMSE', 'R2', 'RMSLE', 'MAPE'])
+    master_display = pd.DataFrame(columns=['MAE','MSE','RMSE', 'R2', 'RMSLE', 'MAPE', 'Training time'])
     display(progress)
     
     #display monitor
@@ -3201,18 +3237,20 @@ def blend_models(estimator_list = 'All',
     score_rmsle =np.empty((0,0))
     score_r2 =np.empty((0,0))
     score_mape =np.empty((0,0))
+    score_training_time=np.empty((0,0))
     avgs_mae =np.empty((0,0))
     avgs_mse =np.empty((0,0))
     avgs_rmse =np.empty((0,0))
     avgs_rmsle =np.empty((0,0))
     avgs_r2 =np.empty((0,0))
     avgs_mape =np.empty((0,0))
+    avgs_training_time=np.empty((0,0))
     
     def calculate_mape(actual, prediction):
         mask = actual != 0
         return (np.fabs(actual - prediction)/actual)[mask].mean()
 
-    kf = KFold(fold, random_state=seed)
+    kf = KFold(fold, random_state=seed, shuffle=folds_shuffle)
     
     '''
     MONITOR UPDATE STARTS
@@ -3253,7 +3291,7 @@ def blend_models(estimator_list = 'All',
         import lightgbm as lgb
         from catboost import CatBoostRegressor
 
-        lr = LinearRegression()
+        lr = LinearRegression(n_jobs=-1)
         lasso = Lasso(random_state=seed)
         ridge = Ridge(random_state=seed)
         en = ElasticNet(random_state=seed)
@@ -3264,20 +3302,20 @@ def blend_models(estimator_list = 'All',
         ard = ARDRegression()
         par = PassiveAggressiveRegressor(random_state=seed)
         ransac = RANSACRegressor(min_samples=0.5, random_state=seed)
-        tr = TheilSenRegressor(random_state=seed)
+        tr = TheilSenRegressor(random_state=seed, n_jobs=-1)
         huber = HuberRegressor()
         kr = KernelRidge()
         svm = SVR()
-        knn = KNeighborsRegressor()
+        knn = KNeighborsRegressor(n_jobs=-1)
         dt = DecisionTreeRegressor(random_state=seed)
-        rf = RandomForestRegressor(random_state=seed)
-        et = ExtraTreesRegressor(random_state=seed)
+        rf = RandomForestRegressor(random_state=seed, n_jobs=-1)
+        et = ExtraTreesRegressor(random_state=seed, n_jobs=-1)
         ada = AdaBoostRegressor(random_state=seed)
         gbr = GradientBoostingRegressor(random_state=seed)
         mlp = MLPRegressor(random_state=seed)
         xgboost = XGBRegressor(random_state=seed, n_jobs=-1, verbosity=0)
-        lightgbm = lgb.LGBMRegressor(random_state=seed)
-        catboost = CatBoostRegressor(random_state=seed, silent = True)
+        lightgbm = lgb.LGBMRegressor(random_state=seed, n_jobs=-1)
+        catboost = CatBoostRegressor(random_state=seed, silent = True, thread_count=-1)
 
         progress.value += 1
         
@@ -3413,6 +3451,7 @@ def blend_models(estimator_list = 'All',
     
         Xtrain,Xtest = data_X.iloc[train_i], data_X.iloc[test_i]
         ytrain,ytest = data_y.iloc[train_i], data_y.iloc[test_i]      
+        time_start=time.time()
         model.fit(Xtrain,ytrain)
         pred_ = model.predict(Xtest)
         
@@ -3424,13 +3463,14 @@ def blend_models(estimator_list = 'All',
             
         except:
             pass
-        
+        time_end=time.time()
         mae = metrics.mean_absolute_error(ytest,pred_)
         mse = metrics.mean_squared_error(ytest,pred_)
         rmse = np.sqrt(mse)
         rmsle = np.sqrt(np.mean(np.power(np.log(np.array(abs(pred_))+1) - np.log(np.array(abs(ytest))+1), 2)))
         r2 = metrics.r2_score(ytest,pred_)
         mape = calculate_mape(ytest,pred_)
+        training_time=time_end-time_start
         #max_error_ = metrics.max_error(ytest,pred_)
         score_mae = np.append(score_mae,mae)
         score_mse = np.append(score_mse,mse)
@@ -3438,6 +3478,7 @@ def blend_models(estimator_list = 'All',
         score_rmsle = np.append(score_rmsle,rmsle)
         score_r2 =np.append(score_r2,r2)
         score_mape = np.append(score_mape,mape)
+        score_training_time=np.append(score_training_time,training_time)
     
         '''
         
@@ -3447,7 +3488,8 @@ def blend_models(estimator_list = 'All',
         '''
         
         fold_results = pd.DataFrame({'MAE':[mae], 'MSE': [mse], 'RMSE': [rmse], 
-                                     'R2': [r2], 'RMSLE': [rmsle], 'MAPE': [mape]}).round(round)
+                                     'R2': [r2], 'RMSLE': [rmsle], 'MAPE': [mape], 'Training time':[training_time]}).round(round)
+        fold_results.loc[:,'Training time'] = fold_results.loc[:,'Training time'].round(2)
         master_display = pd.concat([master_display, fold_results],ignore_index=True)
         fold_results = []
         
@@ -3500,12 +3542,14 @@ def blend_models(estimator_list = 'All',
     mean_rmsle=np.mean(score_rmsle)
     mean_r2=np.mean(score_r2)
     mean_mape=np.mean(score_mape)
+    mean_training_time=np.mean(score_training_time)
     std_mae=np.std(score_mae)
     std_mse=np.std(score_mse)
     std_rmse=np.std(score_rmse)
     std_rmsle=np.std(score_rmsle)
     std_r2=np.std(score_r2)
     std_mape=np.std(score_mape)
+    std_training_time=np.std(score_training_time)
     
     avgs_mae = np.append(avgs_mae, mean_mae)
     avgs_mae = np.append(avgs_mae, std_mae) 
@@ -3519,18 +3563,22 @@ def blend_models(estimator_list = 'All',
     avgs_r2 = np.append(avgs_r2, std_r2)
     avgs_mape = np.append(avgs_mape, mean_mape)
     avgs_mape = np.append(avgs_mape, std_mape)
+    avgs_training_time=np.append(avgs_training_time, mean_training_time)
+    avgs_training_time=np.append(avgs_training_time, std_training_time)
     
     
     progress.value += 1
     
-    model_results = pd.DataFrame({'MAE': score_mae, 'MSE': score_mse, 'RMSE' : score_rmse, 'R2' : score_r2, 
-                                  'RMSLE' : score_rmsle, 'MAPE' : score_mape})
-    model_avgs = pd.DataFrame({'MAE': avgs_mae, 'MSE': avgs_mse, 'RMSE' : avgs_rmse, 'R2' : avgs_r2, 
-                                'RMSLE' : avgs_rmsle, 'MAPE' : avgs_mape},index=['Mean', 'SD'])
+    model_results = pd.DataFrame({'MAE': score_mae, 'MSE': score_mse, 'RMSE' : score_rmse, 'R2' : score_r2,
+                                  'RMSLE' : score_rmsle, 'MAPE' : score_mape,'Training time':score_training_time})
+    model_avgs = pd.DataFrame({'MAE': avgs_mae, 'MSE': avgs_mse, 'RMSE' : avgs_rmse, 'R2' : avgs_r2,
+                                'RMSLE' : avgs_rmsle, 'MAPE' : avgs_mape, 'Training time':avgs_training_time},index=['Mean', 'SD'])
 
     model_results = model_results.append(model_avgs)
     model_results = model_results.round(round)
-    
+    model_results.loc[:,'Training time'] = model_results.loc[:,'Training time'].round(2)
+    # Green the mean
+    model_results=model_results.style.apply(lambda x: ['background: lightgreen' if (x.name == 'Mean') else '' for i in x], axis=1)
     progress.value += 1
     
     #refitting the model on complete X_train, y_train
@@ -3559,8 +3607,6 @@ def blend_models(estimator_list = 'All',
         clear_output()
         return model
 
-
-
 def tune_model(estimator = None, 
                fold = 10, 
                round = 4, 
@@ -3568,7 +3614,8 @@ def tune_model(estimator = None,
                optimize = 'r2',
                ensemble = False, 
                method = None,
-               verbose = True):
+               verbose = True,
+               **kwargs):
     
       
     """
@@ -3649,6 +3696,9 @@ def tune_model(estimator = None,
 
     verbose: Boolean, default = True
     Score grid is not printed when verbose is set to False.
+
+    **kwargs: 
+    Additional keyword arguments to pass to the estimator
 
     Returns:
     --------
@@ -3748,7 +3798,7 @@ def tune_model(estimator = None,
     
     #progress bar
     progress = ipw.IntProgress(value=0, min=0, max=fold+6, step=1 , description='Processing: ')
-    master_display = pd.DataFrame(columns=['MAE','MSE','RMSE', 'R2', 'RMSLE', 'MAPE'])
+    master_display = pd.DataFrame(columns=['MAE','MSE','RMSE', 'R2', 'RMSLE', 'MAPE', 'Training time'])
     display(progress)    
     
     #display monitor
@@ -3805,7 +3855,7 @@ def tune_model(estimator = None,
     
     progress.value += 1
     
-    kf = KFold(fold, random_state=seed)
+    kf = KFold(fold, random_state=seed, shuffle=folds_shuffle)
 
     score_mae =np.empty((0,0))
     score_mse =np.empty((0,0))
@@ -3813,13 +3863,14 @@ def tune_model(estimator = None,
     score_rmsle =np.empty((0,0))
     score_r2 =np.empty((0,0))
     score_mape =np.empty((0,0))
+    score_training_time=np.empty((0,0))
     avgs_mae =np.empty((0,0))
     avgs_mse =np.empty((0,0))
     avgs_rmse =np.empty((0,0))
     avgs_rmsle =np.empty((0,0))
     avgs_r2 =np.empty((0,0))
     avgs_mape =np.empty((0,0))
-    
+    avgs_training_time=np.empty((0,0))
     def calculate_mape(actual, prediction):
         mask = actual != 0
         return (np.fabs(actual - prediction)/actual)[mask].mean()
@@ -3844,7 +3895,7 @@ def tune_model(estimator = None,
         param_grid = {'fit_intercept': [True, False],
                      'normalize' : [True, False]
                     }        
-        model_grid = RandomizedSearchCV(estimator=LinearRegression(), param_distributions=param_grid, 
+        model_grid = RandomizedSearchCV(estimator=LinearRegression(**kwargs), param_distributions=param_grid, 
                                         scoring=optimize, n_iter=n_iter, cv=cv, random_state=seed,
                                         n_jobs=-1, iid=False)
 
@@ -3861,7 +3912,7 @@ def tune_model(estimator = None,
                       'fit_intercept': [True, False],
                       'normalize' : [True, False],
                      }
-        model_grid = RandomizedSearchCV(estimator=Lasso(random_state=seed), 
+        model_grid = RandomizedSearchCV(estimator=Lasso(random_state=seed, **kwargs), 
                                         param_distributions=param_grid, scoring=optimize, n_iter=n_iter, cv=cv, 
                                         random_state=seed, iid=False,n_jobs=-1)
         
@@ -3879,7 +3930,7 @@ def tune_model(estimator = None,
                       "normalize": [True, False],
                       }
 
-        model_grid = RandomizedSearchCV(estimator=Ridge(random_state=seed), param_distributions=param_grid,
+        model_grid = RandomizedSearchCV(estimator=Ridge(random_state=seed, **kwargs), param_distributions=param_grid,
                                        scoring=optimize, n_iter=n_iter, cv=cv, random_state=seed,
                                        iid=False, n_jobs=-1)
 
@@ -3898,7 +3949,7 @@ def tune_model(estimator = None,
                       'normalize': [True, False]
                      } 
 
-        model_grid = RandomizedSearchCV(estimator=ElasticNet(random_state=seed), 
+        model_grid = RandomizedSearchCV(estimator=ElasticNet(random_state=seed, **kwargs), 
                                         param_distributions=param_grid, scoring=optimize, n_iter=n_iter, cv=cv, 
                                         random_state=seed, iid=False, n_jobs=-1)
 
@@ -3915,7 +3966,7 @@ def tune_model(estimator = None,
                      'normalize' : [True, False],
                      'eps': [0.00001, 0.0001, 0.001, 0.01, 0.05, 0.0005, 0.005, 0.00005, 0.02, 0.007]}
 
-        model_grid = RandomizedSearchCV(estimator=Lars(), param_distributions=param_grid,
+        model_grid = RandomizedSearchCV(estimator=Lars(**kwargs), param_distributions=param_grid,
                                        scoring=optimize, n_iter=n_iter, cv=cv, random_state=seed,
                                        n_jobs=-1)
 
@@ -3933,7 +3984,7 @@ def tune_model(estimator = None,
                      'normalize' : [True, False],
                      'eps': [0.00001, 0.0001, 0.001, 0.01, 0.05, 0.0005, 0.005, 0.00005, 0.02, 0.007]}
 
-        model_grid = RandomizedSearchCV(estimator=LassoLars(), param_distributions=param_grid,
+        model_grid = RandomizedSearchCV(estimator=LassoLars(**kwargs), param_distributions=param_grid,
                                        scoring=optimize, n_iter=n_iter, cv=cv, random_state=seed,
                                        n_jobs=-1)
 
@@ -3951,7 +4002,7 @@ def tune_model(estimator = None,
                       'fit_intercept' : [True, False],
                       'normalize': [True, False]}
 
-        model_grid = RandomizedSearchCV(estimator=OrthogonalMatchingPursuit(), 
+        model_grid = RandomizedSearchCV(estimator=OrthogonalMatchingPursuit(**kwargs), 
                                         param_distributions=param_grid, scoring=optimize, n_iter=n_iter, 
                                         cv=cv, random_state=seed, n_jobs=-1)
 
@@ -3973,7 +4024,7 @@ def tune_model(estimator = None,
                       'normalize': [True, False]
                      }    
 
-        model_grid = RandomizedSearchCV(estimator=BayesianRidge(), 
+        model_grid = RandomizedSearchCV(estimator=BayesianRidge(**kwargs), 
                                         param_distributions=param_grid, scoring=optimize, n_iter=n_iter, 
                                         cv=cv, random_state=seed, n_jobs=-1)
 
@@ -3996,7 +4047,7 @@ def tune_model(estimator = None,
                       'normalize': [True, False]
                      }    
 
-        model_grid = RandomizedSearchCV(estimator=ARDRegression(), 
+        model_grid = RandomizedSearchCV(estimator=ARDRegression(**kwargs), 
                                         param_distributions=param_grid, scoring=optimize, n_iter=n_iter, 
                                         cv=cv, random_state=seed, n_jobs=-1)
 
@@ -4018,7 +4069,7 @@ def tune_model(estimator = None,
                       'shuffle' : [True, False]
                      }    
 
-        model_grid = RandomizedSearchCV(estimator=PassiveAggressiveRegressor(random_state=seed), 
+        model_grid = RandomizedSearchCV(estimator=PassiveAggressiveRegressor(random_state=seed, **kwargs), 
                                         param_distributions=param_grid, scoring=optimize, n_iter=n_iter, 
                                         cv=cv, random_state=seed, n_jobs=-1)
 
@@ -4039,7 +4090,7 @@ def tune_model(estimator = None,
                       'loss' : ['absolute_loss', 'squared_loss'],
                      }    
 
-        model_grid = RandomizedSearchCV(estimator=RANSACRegressor(random_state=seed), 
+        model_grid = RandomizedSearchCV(estimator=RANSACRegressor(random_state=seed, **kwargs), 
                                         param_distributions=param_grid, scoring=optimize, n_iter=n_iter, 
                                         cv=cv, random_state=seed, n_jobs=-1)
 
@@ -4056,7 +4107,7 @@ def tune_model(estimator = None,
                       'max_subpopulation': [5000, 10000, 15000, 20000, 25000, 30000, 40000, 50000]
                      }    
 
-        model_grid = RandomizedSearchCV(estimator=TheilSenRegressor(random_state=seed), 
+        model_grid = RandomizedSearchCV(estimator=TheilSenRegressor(random_state=seed, **kwargs), 
                                         param_distributions=param_grid, scoring=optimize, n_iter=n_iter, 
                                         cv=cv, random_state=seed, n_jobs=-1)
 
@@ -4074,7 +4125,7 @@ def tune_model(estimator = None,
                       'fit_intercept' : [True, False]
                      }    
 
-        model_grid = RandomizedSearchCV(estimator=HuberRegressor(), 
+        model_grid = RandomizedSearchCV(estimator=HuberRegressor(**kwargs), 
                                         param_distributions=param_grid, scoring=optimize, n_iter=n_iter, 
                                         cv=cv, random_state=seed, n_jobs=-1)
 
@@ -4089,7 +4140,7 @@ def tune_model(estimator = None,
 
         param_grid = {'alpha': np.arange(0,1,0.01) }    
 
-        model_grid = RandomizedSearchCV(estimator=KernelRidge(), 
+        model_grid = RandomizedSearchCV(estimator=KernelRidge(**kwargs), 
                                         param_distributions=param_grid, scoring=optimize, n_iter=n_iter, 
                                         cv=cv, random_state=seed, n_jobs=-1)
 
@@ -4109,7 +4160,7 @@ def tune_model(estimator = None,
                       'shrinking': [True, False]
                      }    
 
-        model_grid = RandomizedSearchCV(estimator=SVR(), 
+        model_grid = RandomizedSearchCV(estimator=SVR(**kwargs), 
                                         param_distributions=param_grid, scoring=optimize, n_iter=n_iter, 
                                         cv=cv, random_state=seed, n_jobs=-1)
 
@@ -4128,7 +4179,7 @@ def tune_model(estimator = None,
                      'leaf_size': [10,20,30,40,50,60,70,80,90]
                      } 
 
-        model_grid = RandomizedSearchCV(estimator=KNeighborsRegressor(), 
+        model_grid = RandomizedSearchCV(estimator=KNeighborsRegressor(**kwargs), 
                                         param_distributions=param_grid, scoring=optimize, n_iter=n_iter, 
                                         cv=cv, random_state=seed, n_jobs=-1)
 
@@ -4147,7 +4198,7 @@ def tune_model(estimator = None,
                       "criterion": ["mse", "mae", "friedman_mse"],
                      } 
 
-        model_grid = RandomizedSearchCV(estimator=DecisionTreeRegressor(random_state=seed), 
+        model_grid = RandomizedSearchCV(estimator=DecisionTreeRegressor(random_state=seed, **kwargs), 
                                         param_distributions=param_grid, scoring=optimize, n_iter=n_iter, 
                                         cv=cv, random_state=seed, n_jobs=-1)
 
@@ -4170,7 +4221,7 @@ def tune_model(estimator = None,
                       'bootstrap': [True, False]
                       }
 
-        model_grid = RandomizedSearchCV(estimator=RandomForestRegressor(random_state=seed), 
+        model_grid = RandomizedSearchCV(estimator=RandomForestRegressor(random_state=seed, **kwargs), 
                                         param_distributions=param_grid, scoring=optimize, n_iter=n_iter, 
                                         cv=cv, random_state=seed, n_jobs=-1)
 
@@ -4193,7 +4244,7 @@ def tune_model(estimator = None,
                       'bootstrap': [True, False]
                       }  
 
-        model_grid = RandomizedSearchCV(estimator=ExtraTreesRegressor(random_state=seed), 
+        model_grid = RandomizedSearchCV(estimator=ExtraTreesRegressor(random_state=seed, **kwargs), 
                                         param_distributions=param_grid, scoring=optimize, n_iter=n_iter, 
                                         cv=cv, random_state=seed, n_jobs=-1)
 
@@ -4211,7 +4262,7 @@ def tune_model(estimator = None,
                       'loss' : ["linear", "square", "exponential"]
                      }    
 
-        model_grid = RandomizedSearchCV(estimator=AdaBoostRegressor(random_state=seed), 
+        model_grid = RandomizedSearchCV(estimator=AdaBoostRegressor(random_state=seed, **kwargs), 
                                         param_distributions=param_grid, scoring=optimize, n_iter=n_iter, 
                                         cv=cv, random_state=seed, n_jobs=-1)
 
@@ -4235,7 +4286,7 @@ def tune_model(estimator = None,
                       'max_features' : ['auto', 'sqrt', 'log2']
                      }     
 
-        model_grid = RandomizedSearchCV(estimator=GradientBoostingRegressor(random_state=seed), 
+        model_grid = RandomizedSearchCV(estimator=GradientBoostingRegressor(random_state=seed, **kwargs), 
                                         param_distributions=param_grid, scoring=optimize, n_iter=n_iter, 
                                         cv=cv, random_state=seed, n_jobs=-1)
 
@@ -4255,7 +4306,7 @@ def tune_model(estimator = None,
                       'activation': ["tanh", "identity", "logistic","relu"]
                       }    
 
-        model_grid = RandomizedSearchCV(estimator=MLPRegressor(random_state=seed), 
+        model_grid = RandomizedSearchCV(estimator=MLPRegressor(random_state=seed, **kwargs), 
                                         param_distributions=param_grid, scoring=optimize, n_iter=n_iter, 
                                         cv=cv, random_state=seed, n_jobs=-1)    
 
@@ -4277,7 +4328,7 @@ def tune_model(estimator = None,
                       'min_child_weight': [1, 2, 3, 4]
                      }
 
-        model_grid = RandomizedSearchCV(estimator=XGBRegressor(random_state=seed, n_jobs=-1, verbosity=0), 
+        model_grid = RandomizedSearchCV(estimator=XGBRegressor(random_state=seed, n_jobs=-1, verbosity=0, **kwargs), 
                                         param_distributions=param_grid, scoring=optimize, n_iter=n_iter, 
                                         cv=cv, random_state=seed, n_jobs=-1)
 
@@ -4301,7 +4352,7 @@ def tune_model(estimator = None,
                       'reg_lambda': [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
                      }
             
-        model_grid = RandomizedSearchCV(estimator=lgb.LGBMRegressor(random_state=seed), 
+        model_grid = RandomizedSearchCV(estimator=lgb.LGBMRegressor(random_state=seed, **kwargs), 
                                         param_distributions=param_grid, scoring=optimize, n_iter=n_iter, 
                                         cv=cv, random_state=seed, n_jobs=-1)
 
@@ -4322,7 +4373,7 @@ def tune_model(estimator = None,
                       #'ctr_border_count':[50,5,10,20,100,200]
                       }
             
-        model_grid = RandomizedSearchCV(estimator=CatBoostRegressor(random_state=seed, silent=True), 
+        model_grid = RandomizedSearchCV(estimator=CatBoostRegressor(random_state=seed, silent=True, **kwargs), 
                                         param_distributions=param_grid, scoring=optimize, n_iter=n_iter, 
                                         cv=cv, random_state=seed, n_jobs=-1)
 
@@ -4453,6 +4504,7 @@ def tune_model(estimator = None,
         
         Xtrain,Xtest = data_X.iloc[train_i], data_X.iloc[test_i]
         ytrain,ytest = data_y.iloc[train_i], data_y.iloc[test_i]  
+        time_start=time.time()
         model.fit(Xtrain,ytrain)
         pred_ = model.predict(Xtest)
         
@@ -4464,13 +4516,14 @@ def tune_model(estimator = None,
             
         except:
             pass
-        
+        time_end=time.time()
         mae = metrics.mean_absolute_error(ytest,pred_)
         mse = metrics.mean_squared_error(ytest,pred_)
         rmse = np.sqrt(mse)
         r2 = metrics.r2_score(ytest,pred_)
         rmsle = np.sqrt(np.mean(np.power(np.log(np.array(abs(pred_))+1) - np.log(np.array(abs(ytest))+1), 2)))
         mape = calculate_mape(ytest,pred_)
+        training_time=time_end-time_start
         #max_error_ = metrics.max_error(ytest,pred_)
         score_mae = np.append(score_mae,mae)
         score_mse = np.append(score_mse,mse)
@@ -4478,7 +4531,7 @@ def tune_model(estimator = None,
         score_rmsle = np.append(score_rmsle,rmsle)
         score_r2 =np.append(score_r2,r2)
         score_mape = np.append(score_mape,mape)
-            
+        score_training_time=np.append(score_training_time,training_time)
         progress.value += 1
             
             
@@ -4489,7 +4542,8 @@ def tune_model(estimator = None,
         '''
         
         fold_results = pd.DataFrame({'MAE':[mae], 'MSE': [mse], 'RMSE': [rmse], 
-                                     'R2': [r2], 'RMSLE': [rmsle], 'MAPE': [mape]}).round(round)
+                                     'R2': [r2], 'RMSLE': [rmsle], 'MAPE': [mape], 'Training time':[training_time]}).round(round)
+        fold_results.loc[:,'Training time'] = fold_results.loc[:,'Training time'].round(2)
         master_display = pd.concat([master_display, fold_results],ignore_index=True)
         fold_results = []
         
@@ -4550,13 +4604,15 @@ def tune_model(estimator = None,
     mean_rmsle=np.mean(score_rmsle)
     mean_r2=np.mean(score_r2)
     mean_mape=np.mean(score_mape)
+    mean_training_time=np.mean(score_training_time)
     std_mae=np.std(score_mae)
     std_mse=np.std(score_mse)
     std_rmse=np.std(score_rmse)
     std_rmsle=np.std(score_rmsle)
     std_r2=np.std(score_r2)
     std_mape=np.std(score_mape)
-
+    std_training_time=np.std(score_training_time)
+    
     avgs_mae = np.append(avgs_mae, mean_mae)
     avgs_mae = np.append(avgs_mae, std_mae) 
     avgs_mse = np.append(avgs_mse, mean_mse)
@@ -4569,18 +4625,22 @@ def tune_model(estimator = None,
     avgs_r2 = np.append(avgs_r2, std_r2)
     avgs_mape = np.append(avgs_mape, mean_mape)
     avgs_mape = np.append(avgs_mape, std_mape)
+    avgs_training_time=np.append(avgs_training_time, mean_training_time)
+    avgs_training_time=np.append(avgs_training_time, std_training_time)
     
 
     progress.value += 1
     
-    model_results = pd.DataFrame({'MAE': score_mae, 'MSE': score_mse, 'RMSE' : score_rmse, 'R2' : score_r2 , 
-                                  'RMSLE' : score_rmsle, 'MAPE' : score_mape})
-    model_avgs = pd.DataFrame({'MAE': avgs_mae, 'MSE': avgs_mse, 'RMSE' : avgs_rmse, 'R2' : avgs_r2, 
-                                'RMSLE' : avgs_rmsle, 'MAPE' : avgs_mape},index=['Mean', 'SD'])
+    model_results = pd.DataFrame({'MAE': score_mae, 'MSE': score_mse, 'RMSE' : score_rmse, 'R2' : score_r2,
+                                  'RMSLE' : score_rmsle, 'MAPE' : score_mape,'Training time':score_training_time})
+    model_avgs = pd.DataFrame({'MAE': avgs_mae, 'MSE': avgs_mse, 'RMSE' : avgs_rmse, 'R2' : avgs_r2,
+                                'RMSLE' : avgs_rmsle, 'MAPE' : avgs_mape, 'Training time':avgs_training_time},index=['Mean', 'SD'])
 
     model_results = model_results.append(model_avgs)
     model_results = model_results.round(round)
-
+    model_results.loc[:,'Training time'] = model_results.loc[:,'Training time'].round(2)
+    # Green the mean
+    model_results=model_results.style.apply(lambda x: ['background: lightgreen' if (x.name == 'Mean') else '' for i in x], axis=1)
     progress.value += 1
     
     #refitting the model on complete X_train, y_train
@@ -4608,10 +4668,6 @@ def tune_model(estimator = None,
     else:
         clear_output()
         return best_model
-
-
-
-
 
 def stack_models(estimator_list, 
                  meta_model = None, 
@@ -4765,7 +4821,7 @@ def stack_models(estimator_list,
     #Defining meta model. Linear Regression hardcoded for now
     if meta_model == None:
         from sklearn.linear_model import LinearRegression
-        meta_model = LinearRegression()
+        meta_model = LinearRegression(n_jobs=-1)
     else:
         meta_model = deepcopy(meta_model) 
     
@@ -4774,7 +4830,7 @@ def stack_models(estimator_list,
     #progress bar
     max_progress = len(estimator_list) + fold + 4
     progress = ipw.IntProgress(value=0, min=0, max=max_progress, step=1 , description='Processing: ')
-    master_display = pd.DataFrame(columns=['MAE','MSE','RMSE', 'R2', 'RMSLE', 'MAPE'])
+    master_display = pd.DataFrame(columns=['MAE','MSE','RMSE', 'R2', 'RMSLE', 'MAPE', 'Training time'])
     display(progress)
     
     #display monitor
@@ -4906,7 +4962,7 @@ def stack_models(estimator_list,
     model.fit(data_X, data_y)
     models_.append(model)
     
-    kf = KFold(fold, random_state=seed) #capturing fold requested by user
+    kf = KFold(fold, random_state=seed, shuffle=folds_shuffle) #capturing fold requested by user
 
     score_mae =np.empty((0,0))
     score_mse =np.empty((0,0))
@@ -4914,13 +4970,14 @@ def stack_models(estimator_list,
     score_rmsle =np.empty((0,0))
     score_r2 =np.empty((0,0))
     score_mape =np.empty((0,0))
+    score_training_time=np.empty((0,0))
     avgs_mae =np.empty((0,0))
     avgs_mse =np.empty((0,0))
     avgs_rmse =np.empty((0,0))
     avgs_rmsle =np.empty((0,0))
     avgs_r2 =np.empty((0,0))
     avgs_mape =np.empty((0,0))  
-    
+    avgs_training_time=np.empty((0,0))
     def calculate_mape(actual, prediction):
         mask = actual != 0
         return (np.fabs(actual - prediction)/actual)[mask].mean()
@@ -4949,7 +5006,7 @@ def stack_models(estimator_list,
         
         Xtrain,Xtest = data_X.iloc[train_i], data_X.iloc[test_i]
         ytrain,ytest = data_y.iloc[train_i], data_y.iloc[test_i]
-
+        time_start=time.time()
         model.fit(Xtrain,ytrain)
         pred_ = model.predict(Xtest)
         
@@ -4961,13 +5018,14 @@ def stack_models(estimator_list,
             
         except:
             pass
-        
+        time_end=time.time()
         mae = metrics.mean_absolute_error(ytest,pred_)
         mse = metrics.mean_squared_error(ytest,pred_)
         rmse = np.sqrt(mse)
         r2 = metrics.r2_score(ytest,pred_)
         rmsle = np.sqrt(np.mean(np.power(np.log(np.array(abs(pred_))+1) - np.log(np.array(abs(ytest))+1), 2)))
         mape = calculate_mape(ytest,pred_)
+        training_time=time_end-time_start
         #max_error_ = metrics.max_error(ytest,pred_)
         score_mae = np.append(score_mae,mae)
         score_mse = np.append(score_mse,mse)
@@ -4975,7 +5033,7 @@ def stack_models(estimator_list,
         score_rmsle = np.append(score_rmsle,rmsle)
         score_r2 =np.append(score_r2,r2)
         score_mape = np.append(score_mape,mape)
-        
+        score_training_time=np.append(score_training_time,training_time)
         
         '''
         
@@ -4985,7 +5043,8 @@ def stack_models(estimator_list,
         '''
         
         fold_results = pd.DataFrame({'MAE':[mae], 'MSE': [mse], 'RMSE': [rmse], 
-                                     'R2': [r2], 'RMSLE': [rmsle], 'MAPE': [mape]}).round(round)
+                                     'R2': [r2], 'RMSLE': [rmsle], 'MAPE': [mape], 'Training time':[training_time]}).round(round)
+        fold_results.loc[:,'Training time'] = fold_results.loc[:,'Training time'].round(2)
         master_display = pd.concat([master_display, fold_results],ignore_index=True)
         fold_results = []
         
@@ -5048,12 +5107,14 @@ def stack_models(estimator_list,
     mean_rmsle=np.mean(score_rmsle)
     mean_r2=np.mean(score_r2)
     mean_mape=np.mean(score_mape)
+    mean_training_time=np.mean(score_training_time)
     std_mae=np.std(score_mae)
     std_mse=np.std(score_mse)
     std_rmse=np.std(score_rmse)
     std_rmsle=np.std(score_rmsle)
     std_r2=np.std(score_r2)
     std_mape=np.std(score_mape)
+    std_training_time=np.std(score_training_time)
     
     avgs_mae = np.append(avgs_mae, mean_mae)
     avgs_mae = np.append(avgs_mae, std_mae) 
@@ -5067,15 +5128,19 @@ def stack_models(estimator_list,
     avgs_r2 = np.append(avgs_r2, std_r2)
     avgs_mape = np.append(avgs_mape, mean_mape)
     avgs_mape = np.append(avgs_mape, std_mape)
+    avgs_training_time=np.append(avgs_training_time, mean_training_time)
+    avgs_training_time=np.append(avgs_training_time, std_training_time)
       
-    model_results = pd.DataFrame({'MAE': score_mae, 'MSE': score_mse, 'RMSE' : score_rmse, 'R2' : score_r2 , 
-                                 'RMSLE' : score_rmsle, 'MAPE' : score_mape})
-    model_avgs = pd.DataFrame({'MAE': avgs_mae, 'MSE': avgs_mse, 'RMSE' : avgs_rmse, 'R2' : avgs_r2, 
-                               'RMSLE' : avgs_rmsle, 'MAPE' : avgs_mape},index=['Mean', 'SD'])
+    model_results = pd.DataFrame({'MAE': score_mae, 'MSE': score_mse, 'RMSE' : score_rmse, 'R2' : score_r2,
+                                  'RMSLE' : score_rmsle, 'MAPE' : score_mape,'Training time':score_training_time})
+    model_avgs = pd.DataFrame({'MAE': avgs_mae, 'MSE': avgs_mse, 'RMSE' : avgs_rmse, 'R2' : avgs_r2,
+                                'RMSLE' : avgs_rmsle, 'MAPE' : avgs_mape, 'Training time':avgs_training_time},index=['Mean', 'SD'])
   
     model_results = model_results.append(model_avgs)
     model_results = model_results.round(round)  
-    
+    model_results.loc[:,'Training time'] = model_results.loc[:,'Training time'].round(2)
+    # Green the mean
+    model_results=model_results.style.apply(lambda x: ['background: lightgreen' if (x.name == 'Mean') else '' for i in x], axis=1)
     progress.value += 1
     
     #appending method into models_
@@ -5103,8 +5168,6 @@ def stack_models(estimator_list,
     else:
         clear_output()
         return models_
-
-
 
 def create_stacknet(estimator_list,
                     meta_model = None,
@@ -5261,7 +5324,7 @@ def create_stacknet(estimator_list,
     #defining meta model
     if meta_model == None:
         from sklearn.linear_model import LinearRegression
-        meta_model = LinearRegression()
+        meta_model = LinearRegression(n_jobs=-1)
     else:
         meta_model = deepcopy(meta_model)
         
@@ -5282,7 +5345,7 @@ def create_stacknet(estimator_list,
     display(monitor, display_id = 'monitor')
     
     if verbose:
-        master_display = pd.DataFrame(columns=['MAE','MSE','RMSE', 'R2', 'RMSLE', 'MAPE'])
+        master_display = pd.DataFrame(columns=['MAE','MSE','RMSE', 'R2', 'RMSLE', 'MAPE', 'Training time'])
         display_ = display(master_display, display_id=True)
         display_id = display_.display_id
     
@@ -5466,7 +5529,7 @@ def create_stacknet(estimator_list,
     
     meta_model_ = model.fit(data_X,data_y)
     
-    kf = KFold(fold, random_state=seed) #capturing fold requested by user
+    kf = KFold(fold, random_state=seed, shuffle=folds_shuffle) #capturing fold requested by user
 
     score_mae =np.empty((0,0))
     score_mse =np.empty((0,0))
@@ -5474,13 +5537,14 @@ def create_stacknet(estimator_list,
     score_rmsle =np.empty((0,0))
     score_r2 =np.empty((0,0))
     score_mape =np.empty((0,0))
+    score_training_time=np.empty((0,0))
     avgs_mae =np.empty((0,0))
     avgs_mse =np.empty((0,0))
     avgs_rmse =np.empty((0,0))
     avgs_rmsle =np.empty((0,0))
     avgs_r2 =np.empty((0,0))
     avgs_mape =np.empty((0,0))  
-    
+    avgs_training_time=np.empty((0,0))
     def calculate_mape(actual, prediction):
         mask = actual != 0
         return (np.fabs(actual - prediction)/actual)[mask].mean()
@@ -5505,7 +5569,7 @@ def create_stacknet(estimator_list,
         
         Xtrain,Xtest = data_X.iloc[train_i], data_X.iloc[test_i]
         ytrain,ytest = data_y.iloc[train_i], data_y.iloc[test_i]
-        
+        time_start=time.time()
         model.fit(Xtrain,ytrain)
         pred_ = model.predict(Xtest)
         
@@ -5517,13 +5581,14 @@ def create_stacknet(estimator_list,
             
         except:
             pass
-        
+        time_end=time.time()
         mae = metrics.mean_absolute_error(ytest,pred_)
         mse = metrics.mean_squared_error(ytest,pred_)
         rmse = np.sqrt(mse)
         r2 = metrics.r2_score(ytest,pred_)
         rmsle = np.sqrt(np.mean(np.power(np.log(np.array(abs(pred_))+1) - np.log(np.array(abs(ytest))+1), 2)))
         mape = calculate_mape(ytest,pred_)
+        training_time=time_end-time_start
         #max_error_ = metrics.max_error(ytest,pred_)
         score_mae = np.append(score_mae,mae)
         score_mse = np.append(score_mse,mse)
@@ -5531,7 +5596,7 @@ def create_stacknet(estimator_list,
         score_rmsle = np.append(score_rmsle,rmsle)
         score_r2 =np.append(score_r2,r2)
         score_mape = np.append(score_mape,mape)
-
+        score_training_time=np.append(score_training_time,training_time)
         progress.value += 1
         
         '''
@@ -5542,8 +5607,8 @@ def create_stacknet(estimator_list,
         '''
         
         fold_results = pd.DataFrame({'MAE':[mae], 'MSE': [mse], 'RMSE': [rmse], 
-                                     'R2': [r2], 'RMSLE' : [rmsle], 'MAPE': [mape]}).round(round)
-        
+                                     'R2': [r2], 'RMSLE' : [rmsle], 'MAPE': [mape], 'Training time':[training_time]}).round(round)
+        fold_results.loc[:,'Training time'] = fold_results.loc[:,'Training time'].round(2)
         if verbose:
             master_display = pd.concat([master_display, fold_results],ignore_index=True)
         
@@ -5598,12 +5663,14 @@ def create_stacknet(estimator_list,
     mean_rmsle=np.mean(score_rmsle)
     mean_r2=np.mean(score_r2)
     mean_mape=np.mean(score_mape)
+    mean_training_time=np.mean(score_training_time)
     std_mae=np.std(score_mae)
     std_mse=np.std(score_mse)
     std_rmse=np.std(score_rmse)
     std_rmsle=np.std(score_rmsle)
     std_r2=np.std(score_r2)
     std_mape=np.std(score_mape)
+    std_training_time=np.std(score_training_time)
     
     avgs_mae = np.append(avgs_mae, mean_mae)
     avgs_mae = np.append(avgs_mae, std_mae) 
@@ -5617,15 +5684,19 @@ def create_stacknet(estimator_list,
     avgs_r2 = np.append(avgs_r2, std_r2)
     avgs_mape = np.append(avgs_mape, mean_mape)
     avgs_mape = np.append(avgs_mape, std_mape)
+    avgs_training_time=np.append(avgs_training_time, mean_training_time)
+    avgs_training_time=np.append(avgs_training_time, std_training_time)
       
-    model_results = pd.DataFrame({'MAE': score_mae, 'MSE': score_mse, 'RMSE' : score_rmse, 'R2' : score_r2 , 
-                                  'RMSLE' : score_rmsle, 'MAPE' : score_mape})
-    model_avgs = pd.DataFrame({'MAE': avgs_mae, 'MSE': avgs_mse, 'RMSE' : avgs_rmse, 'R2' : avgs_r2, 
-                                'RMSLE' : avgs_rmsle, 'MAPE' : avgs_mape},index=['Mean', 'SD'])
+    model_results = pd.DataFrame({'MAE': score_mae, 'MSE': score_mse, 'RMSE' : score_rmse, 'R2' : score_r2,
+                                  'RMSLE' : score_rmsle, 'MAPE' : score_mape,'Training time':score_training_time})
+    model_avgs = pd.DataFrame({'MAE': avgs_mae, 'MSE': avgs_mse, 'RMSE' : avgs_rmse, 'R2' : avgs_r2,
+                                'RMSLE' : avgs_rmsle, 'MAPE' : avgs_mape, 'Training time':avgs_training_time},index=['Mean', 'SD'])
   
     model_results = model_results.append(model_avgs)
     model_results = model_results.round(round)      
-    
+    model_results.loc[:,'Training time'] = model_results.loc[:,'Training time'].round(2)
+    # Green the mean
+    model_results=model_results.style.apply(lambda x: ['background: lightgreen' if (x.name == 'Mean') else '' for i in x], axis=1)
     progress.value += 1
         
     #appending meta_model into models_
@@ -5650,8 +5721,6 @@ def create_stacknet(estimator_list,
     else:
         clear_output()
         return models_ 
-
-
 
 def plot_model(estimator, 
                plot = 'residuals'): 
@@ -5952,10 +6021,6 @@ def plot_model(estimator,
         param_df = pd.DataFrame.from_dict(estimator.get_params(estimator), orient='index', columns=['Parameters'])
         display(param_df)
 
-
-
-
-
 def interpret_model(estimator,
                    plot = 'summary',
                    feature = None, 
@@ -6105,8 +6170,6 @@ def interpret_model(estimator,
             shap.initjs()
             return shap.force_plot(explainer.expected_value, shap_values[row_to_show,:], X_test.iloc[row_to_show,:])
 
-
-
 def evaluate_model(estimator):
     
     
@@ -6175,8 +6238,6 @@ def evaluate_model(estimator):
     
   
     d = interact(plot_model, estimator = fixed(estimator), plot = a)
-
-
 
 def finalize_model(estimator):
     
@@ -6277,10 +6338,6 @@ def finalize_model(estimator):
     
     return model_final
 
-
-
-
-
 def save_model(model, model_name, verbose=True):
     
     """
@@ -6338,8 +6395,6 @@ def save_model(model, model_name, verbose=True):
     joblib.dump(model_, model_name)
     if verbose:
         print('Transformation Pipeline and Model Succesfully Saved')
-
-
 
 def load_model(model_name, 
                platform = None,
@@ -6424,8 +6479,6 @@ def load_model(model_name,
         print('Transformation Pipeline and Model Sucessfully Loaded')
     return joblib.load(model_name)
 
-
-
 def save_experiment(experiment_name=None):
     
         
@@ -6485,8 +6538,6 @@ def save_experiment(experiment_name=None):
     
     print('Experiment Succesfully Saved')
 
-
-
 def load_experiment(experiment_name):
     
     """
@@ -6541,9 +6592,6 @@ def load_experiment(experiment_name):
     display(ind)
 
     return exp
-
-
-
 
 def predict_model(estimator, 
                   data=None,
@@ -6848,7 +6896,6 @@ def predict_model(estimator,
                     
                 except:
                     pass
-                
                 mae = metrics.mean_absolute_error(ytest,pred_)
                 mse = metrics.mean_squared_error(ytest,pred_)
                 rmse = np.sqrt(mse)
@@ -6859,7 +6906,7 @@ def predict_model(estimator,
 
 
                 df_score = pd.DataFrame( {'Model' : 'Stacking Regressor', 'MAE' : [mae], 'MSE' : [mse], 'RMSE' : [rmse], 
-                                          'R2' : [r2], 'RMSLE' : [rmsle], 'MAPE' : mape})
+                                          'R2' : [r2], 'RMSLE' : [rmsle], 'MAPE' : [mape]})
                 df_score = df_score.round(round)
                 display(df_score)
         
@@ -6968,7 +7015,7 @@ def predict_model(estimator,
 
 
                 df_score = pd.DataFrame( {'Model' : 'Stacking Regressor', 'MAE' : [mae], 'MSE' : [mse], 'RMSE' : [rmse], 
-                                          'R2' : [r2], 'RMSLE' : [rmsle], 'MAPE' : mape})
+                                          'R2' : [r2], 'RMSLE' : [rmsle], 'MAPE' : [mape]})
                 df_score = df_score.round(round)
                 display(df_score)
                 
@@ -7035,7 +7082,7 @@ def predict_model(estimator,
 
             except:
                 pass
-                
+
             mae = metrics.mean_absolute_error(ytest,pred_)
             mse = metrics.mean_squared_error(ytest,pred_)
             rmse = np.sqrt(mse)
@@ -7047,7 +7094,7 @@ def predict_model(estimator,
 
             
             df_score = pd.DataFrame( {'Model' : [full_name], 'MAE' : [mae], 'MSE' : [mse], 'RMSE' : [rmse], 
-                                      'R2' : [r2], 'RMSLE' : [rmsle], 'MAPE' : mape })
+                                      'R2' : [r2], 'RMSLE' : [rmsle], 'MAPE' : [mape] })
             df_score = df_score.round(4)
             display(df_score)
         
@@ -7067,9 +7114,6 @@ def predict_model(estimator,
             X_test_ = pd.concat([X_test_,label], axis=1)
 
     return X_test_
-
-
-
 
 def deploy_model(model, 
                  model_name, 
@@ -7172,5 +7216,3 @@ def deploy_model(model,
         s3.upload_file(filename,bucket_name,key)
         clear_output()
         print("Model Succesfully Deployed on AWS S3")
-
-
